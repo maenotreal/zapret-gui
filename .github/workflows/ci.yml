@@ -18,11 +18,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
-        run: dotnet restore
-
       - name: Run tests
-        run: dotnet test ZapretGUI.Tests/ZapretGUI.Tests.csproj --configuration Release --no-restore --verbosity normal
+        run: dotnet test ZapretGUI.Tests/ZapretGUI.Tests.csproj --configuration Release --verbosity normal
 
   build:
     name: Build
