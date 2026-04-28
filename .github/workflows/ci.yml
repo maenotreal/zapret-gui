@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Run tests
+        run: dotnet test ZapretGUI.Tests/ZapretGUI.Tests.csproj --configuration Release --no-restore --verbosity normal
+
+  build:
+    name: Build
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: >
+          dotnet publish ZapretGUI.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZapretGUI-win-x64
+          path: bin/Release/net10.0-windows/win-x64/publish/ZapretGUI.exe
+          retention-days: 30

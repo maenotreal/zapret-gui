@@ -1,18 +1,5 @@
-# Ignore everything
-*
-
-# Except source code and project files
-!*.cs
-!*.csproj
-!*.manifest
-!*.md
-!*.gitignore
-!LICENSE
-
-# Allow subdirectories with source
-!Localization/
-!Localization/**
-!Services/
-!Services/**
-!Properties/
-!Properties/**
+bin/
+obj/
+*.user
+.vs/
+.idea/
