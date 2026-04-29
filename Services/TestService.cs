@@ -83,17 +83,20 @@ public static class TestService
                 log.Report(new(TestLogKind.Section, L.TsConfig(i + 1, batFiles.Count, name)));
 
                 ZapretService.KillProcess("winws");
-                await Task.Delay(300, ct);
+                await WaitForProcessDeadAsync("winws", timeoutMs: 3000, ct);
 
                 log.Report(new(TestLogKind.Info, L.TsStarting));
                 using var proc = StartBat(bat, zapretDir);
-                await Task.Delay(5000, ct); // wait for winws to init
+                bool started = await WaitForProcessAliveAsync("winws", timeoutMs: 7000, ct);
+                if (!started)
+                    log.Report(new(TestLogKind.Warn, "winws не запустился — конфиг пропущен"));
 
                 log.Report(new(TestLogKind.Info, L.TsTesting));
                 var targetResults = await CheckTargetsParallelAsync(targets, log, ct);
 
                 ZapretService.KillProcess("winws");
                 proc?.Kill(entireProcessTree: true);
+                await WaitForProcessDeadAsync("winws", timeoutMs: 3000, ct);
 
                 allResults.Add(new ConfigResult(name, "standard", targetResults, []));
                 await Task.Delay(500, ct);
@@ -167,17 +170,20 @@ public static class TestService
                 log.Report(new(TestLogKind.Section, $"[{i + 1}/{batFiles.Count}] {name}"));
 
                 ZapretService.KillProcess("winws");
-                await Task.Delay(300, ct);
+                await WaitForProcessDeadAsync("winws", timeoutMs: 3000, ct);
 
-                log.Report(new(TestLogKind.Info, "Запускаю конфиг..."));
+                log.Report(new(TestLogKind.Info, L.TsStarting));
                 using var proc = StartBat(bat, zapretDir);
-                await Task.Delay(5000, ct);
+                bool dpiStarted = await WaitForProcessAliveAsync("winws", timeoutMs: 7000, ct);
+                if (!dpiStarted)
+                    log.Report(new(TestLogKind.Warn, "winws не запустился — конфиг пропущен"));
 
                 log.Report(new(TestLogKind.Info, L.TsDpiHeader(dpiTargets.Count)));
                 var dpiResults = await RunDpiChecksAsync(dpiTargets, log, ct);
 
                 ZapretService.KillProcess("winws");
                 proc?.Kill(entireProcessTree: true);
+                await WaitForProcessDeadAsync("winws", timeoutMs: 3000, ct);
 
                 allResults.Add(new ConfigResult(name, "dpi", [], dpiResults));
                 await Task.Delay(500, ct);
@@ -235,7 +241,9 @@ public static class TestService
         {
             foreach (string line in File.ReadAllLines(targetsFile))
             {
-                var m = Regex.Match(line.Trim(), @"^(.+?)\s*=\s*""(.+)""");
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith('#') || trimmed.Length == 0) continue;
+                var m = Regex.Match(trimmed, @"^(.+?)\s*=\s*""(.+)""");
                 if (!m.Success) continue;
                 targets.Add(ParseTarget(m.Groups[1].Value.Trim(), m.Groups[2].Value.Trim()));
             }
@@ -310,10 +318,10 @@ public static class TestService
                 sb.Append($" Ping: {r.PingResult}");
             }
 
-            var lineKind = r.IsUrl && r.HttpResults.All(h => h.Status == "OK")
-                ? TestLogKind.Ok
-                : r.IsUrl && r.HttpResults.Any(h => h.Status == "OK")
-                ? TestLogKind.Warn
+            var lineKind = !r.IsUrl
+                ? (r.PingResult != "Timeout" && r.PingResult != "n/a" ? TestLogKind.Ok : TestLogKind.Error)
+                : r.HttpResults.All(h => h.Status == "OK") ? TestLogKind.Ok
+                : r.HttpResults.Any(h => h.Status == "OK") ? TestLogKind.Warn
                 : TestLogKind.Error;
 
             log.Report(new(lineKind, sb.ToString()));
@@ -667,6 +675,29 @@ public static class TestService
         catch { return null; }
     }
 
+    // ── Process wait helpers ──────────────────────────────────────────────────
+
+    static async Task WaitForProcessDeadAsync(string name, int timeoutMs, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (System.Diagnostics.Process.GetProcessesByName(name).Length == 0) return;
+            await Task.Delay(200, ct);
+        }
+    }
+
+    static async Task<bool> WaitForProcessAliveAsync(string name, int timeoutMs, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (System.Diagnostics.Process.GetProcessesByName(name).Length > 0) return true;
+            await Task.Delay(300, ct);
+        }
+        return false;
+    }
+
     // ── Bat launcher ─────────────────────────────────────────────────────────
 
     static System.Diagnostics.Process? StartBat(string batFile, string zapretDir)
@@ -678,8 +709,8 @@ public static class TestService
                 FileName = "cmd.exe",
                 Arguments = $"/c \"{batFile}\"",
                 WorkingDirectory = zapretDir,
-                WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized,
-                UseShellExecute = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
             };
             psi.EnvironmentVariables["NO_UPDATE_CHECK"] = "1";
             return System.Diagnostics.Process.Start(psi);
