@@ -56,3 +56,5 @@ jobs:
         with:
           files: bin/Release/net10.0-windows/win-x64/publish/ZapretGUI.exe
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.PUB_TOKEN }}
